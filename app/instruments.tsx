@@ -1,19 +1,45 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, Pressable, ActivityIndicator, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { colors, shadow } from '../lib/theme';
 import { supabase } from '../lib/supabase';
 import InstrumentCard from './components/InstrumentCard';
 import { useAuth, canEdit } from '../lib/auth';
 
+type FilterKey =
+  | 'all' | 'operational' | 'maintenance' | 'calibration_due' | 'out_of_service'
+  | 'overdue' | 'at_risk';
+
+const VALID_FILTERS: FilterKey[] = [
+  'all', 'operational', 'maintenance', 'calibration_due', 'out_of_service', 'overdue', 'at_risk',
+];
+
+const daysUntil = (d?: string) => (d ? Math.floor((new Date(d).getTime() - Date.now()) / 86400000) : null);
+const isOverdue = (i: any) => {
+  const m = daysUntil(i.next_maintenance);
+  const c = daysUntil(i.next_calibration);
+  return (m !== null && m < 0) || (c !== null && c < 0);
+};
+const isAtRisk = (i: any) =>
+  i.predicted_failure_days != null && i.predicted_failure_days <= 30 &&
+  i.failure_probability != null && i.failure_probability >= 0.4;
+
 export default function Instruments() {
   const router = useRouter();
   const { user } = useAuth();
+  const params = useLocalSearchParams<{ filter?: string }>();
   const [instruments, setInstruments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'operational' | 'maintenance' | 'calibration_due' | 'out_of_service'>('all');
+  const [filter, setFilter] = useState<FilterKey>('all');
+
+  // Apply an incoming ?filter= param (e.g. from a dashboard "Review" button)
+  useEffect(() => {
+    if (params.filter && VALID_FILTERS.includes(params.filter as FilterKey)) {
+      setFilter(params.filter as FilterKey);
+    }
+  }, [params.filter]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -24,9 +50,16 @@ export default function Instruments() {
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  const matchesFilter = useCallback((i: any) => {
+    if (filter === 'all') return true;
+    if (filter === 'overdue') return isOverdue(i);
+    if (filter === 'at_risk') return isAtRisk(i);
+    return i.status === filter;
+  }, [filter]);
+
   const filtered = useMemo(() => {
     return instruments.filter((i) => {
-      if (filter !== 'all' && i.status !== filter) return false;
+      if (!matchesFilter(i)) return false;
       if (query) {
         const q = query.toLowerCase();
         return (
@@ -39,10 +72,15 @@ export default function Instruments() {
       }
       return true;
     });
-  }, [instruments, query, filter]);
+  }, [instruments, query, matchesFilter]);
+
+  const overdueCount = instruments.filter(isOverdue).length;
+  const atRiskCount = instruments.filter(isAtRisk).length;
 
   const filterTabs = [
     { key: 'all', label: 'All', count: instruments.length },
+    ...(overdueCount > 0 ? [{ key: 'overdue', label: 'Overdue', count: overdueCount }] : []),
+    ...(atRiskCount > 0 ? [{ key: 'at_risk', label: 'At Risk', count: atRiskCount }] : []),
     { key: 'operational', label: 'Operational', count: instruments.filter(i => i.status === 'operational').length },
     { key: 'maintenance', label: 'In Maintenance', count: instruments.filter(i => i.status === 'maintenance').length },
     { key: 'calibration_due', label: 'Calibration Due', count: instruments.filter(i => i.status === 'calibration_due').length },

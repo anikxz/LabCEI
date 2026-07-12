@@ -104,6 +104,28 @@ const cleanupTimer = setInterval(pruneExpiredRefreshTokens, CLEANUP_INTERVAL_MS)
 cleanupTimer.unref(); // don't keep the process alive just for cleanup
 pruneExpiredRefreshTokens(); // run once on startup
 
+// ── Automated notification digest scheduler ──────────────────────────────────
+// Runs the digest routine on an interval; per-user cadence (daily/weekly) and
+// last_sent_at gating inside runDigest prevent duplicate sends, so a frequent
+// tick is safe and robust across restarts. Disable with NOTIFY_SCHEDULER=off.
+if ((process.env.NOTIFY_SCHEDULER || 'on').toLowerCase() !== 'off') {
+  const { runDigest } = require('./routes/functions');
+  const DIGEST_INTERVAL_MS = parseInt(process.env.NOTIFY_INTERVAL_MS || '', 10) || 60 * 60 * 1000; // hourly
+  async function runScheduledDigest() {
+    try {
+      const { sent, skipped } = await runDigest({});
+      if (sent > 0) console.log(`[scheduler] digest sent to ${sent} user(s), ${skipped} skipped`);
+    } catch (err) {
+      console.error('[scheduler] digest failed:', err.message);
+    }
+  }
+  const digestTimer = setInterval(runScheduledDigest, DIGEST_INTERVAL_MS);
+  digestTimer.unref();
+  // Kick off shortly after startup (delay so the DB pool is warm)
+  setTimeout(runScheduledDigest, 30 * 1000).unref();
+  console.log(`[scheduler] notification digest every ${Math.round(DIGEST_INTERVAL_MS / 60000)} min`);
+}
+
 // ── Start ────────────────────────────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || '3001', 10);
 app.listen(PORT, () => {

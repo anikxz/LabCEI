@@ -63,6 +63,9 @@ export default function TrendsScreen() {
 
   // Build monthly activity from logs (last 6 months)
   const monthlyActivity = buildMonthlyActivity(logs);
+  const monthlyAverage = monthlyActivity.length
+    ? monthlyActivity.reduce((s, m) => s + m.count, 0) / monthlyActivity.length
+    : 0;
 
   // CEI distribution buckets
   const ceiBuckets = {
@@ -125,7 +128,7 @@ export default function TrendsScreen() {
           <View style={[styles.card, shadow]}>
             <Text style={styles.cardTitle}>Monthly Activity</Text>
             <Text style={styles.cardSubtitle}>Log entries over the last 6 months</Text>
-            <BarChart data={monthlyActivity} />
+            <BarChart data={monthlyActivity} average={monthlyAverage} />
           </View>
 
           {/* ── Top instruments by CEI ── */}
@@ -259,22 +262,53 @@ function DistBar({ label, count, total, color }: any) {
   );
 }
 
-function BarChart({ data }: { data: { label: string; count: number }[] }) {
+const BAR_CHART_H = 120;
+
+function BarChart({ data, average = 0 }: { data: { label: string; count: number }[]; average?: number }) {
   const maxCount = Math.max(...data.map(d => d.count), 1);
+  const avgBottom = Math.min(BAR_CHART_H, (average / maxCount) * BAR_CHART_H);
   return (
-    <View style={styles.barChart}>
-      {data.map((d, i) => (
-        <View key={i} style={styles.barCol}>
-          <Text style={styles.barCountLabel}>{d.count > 0 ? d.count : ''}</Text>
-          <View style={styles.barTrack}>
+    <View>
+      {/* Plot area — bars + average line share one coordinate space */}
+      <View style={[styles.barPlot, { height: BAR_CHART_H }]}>
+        {data.map((d, i) => (
+          <View key={i} style={styles.barPlotCol}>
             <View style={[
               styles.barFill,
               { height: `${Math.round((d.count / maxCount) * 100)}%` as any },
+              d.count > 0 && { minHeight: 4 },
             ]} />
           </View>
-          <Text style={styles.barMonthLabel}>{d.label}</Text>
+        ))}
+
+        {/* Average trend line */}
+        {average > 0 && (
+          <View pointerEvents="none" style={[styles.avgLine, { bottom: avgBottom }]}>
+            <View style={styles.avgLineDash} />
+            <View style={styles.avgLineTag}>
+              <Text style={styles.avgLineTagText}>avg {average.toFixed(1)}</Text>
+            </View>
+          </View>
+        )}
+      </View>
+
+      {/* Month + count labels */}
+      <View style={styles.barLabelRow}>
+        {data.map((d, i) => (
+          <View key={i} style={styles.barLabelCol}>
+            <Text style={styles.barMonthLabel}>{d.label}</Text>
+            <Text style={styles.barCountLabel}>{d.count}</Text>
+          </View>
+        ))}
+      </View>
+
+      {/* Legend */}
+      {average > 0 && (
+        <View style={styles.avgLegend}>
+          <View style={styles.avgSwatch} />
+          <Text style={styles.avgLegendText}>6-month average: {average.toFixed(1)} logs/month</Text>
         </View>
-      ))}
+      )}
     </View>
   );
 }
@@ -352,12 +386,27 @@ const styles = StyleSheet.create({
   distBarBg: { height: 8, backgroundColor: colors.bg, borderRadius: 999, overflow: 'hidden' },
   distBarFill: { height: '100%', borderRadius: 999 },
 
-  barChart: { flexDirection: 'row', height: 120, alignItems: 'flex-end', gap: 8, paddingTop: 20 },
-  barCol: { flex: 1, alignItems: 'center', height: '100%', justifyContent: 'flex-end' },
-  barCountLabel: { fontSize: 11, color: colors.textMuted, fontWeight: '700', marginBottom: 2 },
-  barTrack: { width: '100%', flex: 1, backgroundColor: colors.bg, borderRadius: 6, overflow: 'hidden', justifyContent: 'flex-end' },
+  barPlot: {
+    flexDirection: 'row', alignItems: 'flex-end', gap: 8,
+    position: 'relative', marginTop: 20,
+    borderBottomWidth: 1, borderBottomColor: colors.border,
+  },
+  barPlotCol: { flex: 1, height: '100%', justifyContent: 'flex-end' },
   barFill: { width: '100%', backgroundColor: colors.primary, borderRadius: 6 },
-  barMonthLabel: { fontSize: 11, color: colors.textMuted, marginTop: 4, fontWeight: '600' },
+  avgLine: { position: 'absolute', left: 0, right: 0, height: 0, justifyContent: 'center' },
+  avgLineDash: { borderTopWidth: 2, borderColor: colors.warning, borderStyle: 'dashed' },
+  avgLineTag: {
+    position: 'absolute', right: 0, top: -9,
+    backgroundColor: colors.warning, borderRadius: 4, paddingHorizontal: 5, paddingVertical: 1,
+  },
+  avgLineTagText: { fontSize: 9, color: '#fff', fontWeight: '700' },
+  barLabelRow: { flexDirection: 'row', gap: 8, marginTop: 6 },
+  barLabelCol: { flex: 1, alignItems: 'center' },
+  barMonthLabel: { fontSize: 11, color: colors.textMuted, fontWeight: '600' },
+  barCountLabel: { fontSize: 11, color: colors.text, fontWeight: '700', marginTop: 1 },
+  avgLegend: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 12 },
+  avgSwatch: { width: 16, height: 0, borderTopWidth: 2, borderColor: colors.warning, borderStyle: 'dashed' },
+  avgLegendText: { fontSize: 11, color: colors.textMuted, fontWeight: '600' },
 
   rankRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,

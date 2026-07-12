@@ -147,15 +147,15 @@ export default function Login() {
           </View>
         )}
 
-        {/* EMAIL */}
+        {/* EMAIL / HRMS USERNAME */}
         <View style={styles.field}>
-          <Text style={styles.label}>Email</Text>
+          <Text style={styles.label}>{mode === 'signin' ? 'Email / HRMS Username' : 'Email'}</Text>
           <TextInput
             style={styles.input}
-            placeholder="you@lab.io"
+            placeholder={mode === 'signin' ? 'you@lab.io or HRMS username' : 'you@lab.io'}
             placeholderTextColor={colors.textLight}
             autoCapitalize="none"
-            keyboardType="email-address"
+            keyboardType={mode === 'signin' ? 'default' : 'email-address'}
             value={email}
             onChangeText={setEmail}
           />

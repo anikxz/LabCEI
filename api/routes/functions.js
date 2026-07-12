@@ -9,11 +9,46 @@
 
 const express = require('express');
 const router  = express.Router();
+const path    = require('path');
+const fs      = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const pool       = require('../db');
 const requireAuth = require('../middleware/auth');
 
 router.use(requireAuth);
+
+// ─── OCR (optional; requires the `tesseract.js` package) ─────────────────────
+// Lazily loaded so the API still boots if the package isn't installed.
+let _tesseract; // undefined = not tried, null = unavailable
+function loadTesseract() {
+  if (_tesseract === undefined) {
+    try { _tesseract = require('tesseract.js'); }
+    catch { _tesseract = null; }
+  }
+  return _tesseract;
+}
+
+/** Map one of our own storage URLs back to the local file, avoiding a network hop. */
+function resolveLocalUpload(imageUrl) {
+  const marker = '/api/storage/files/';
+  const idx = imageUrl.indexOf(marker);
+  if (idx === -1) return null;
+  const rel  = decodeURIComponent(imageUrl.slice(idx + marker.length)); // "lab-documents/<...>"
+  const safe = path.normalize(rel).replace(/^([/\\])+/, '');
+  if (safe.includes('..')) return null;
+  const full = path.join(__dirname, '..', 'uploads', safe);
+  return fs.existsSync(full) ? full : null;
+}
+
+async function runOcr(imageUrl) {
+  const Tesseract = loadTesseract();
+  if (!Tesseract) throw new Error('OCR unavailable: tesseract.js is not installed');
+  const source = resolveLocalUpload(imageUrl) || imageUrl;
+  const opts = {};
+  if (process.env.OCR_LANG_PATH) opts.langPath = process.env.OCR_LANG_PATH;
+  const { data } = await Tesseract.recognize(source, process.env.OCR_LANG || 'eng', opts);
+  return (data.text || '').trim();
+}
 
 // ─── Domain helpers ──────────────────────────────────────────────────────────
 
@@ -145,6 +180,21 @@ router.post('/ai-analysis', async (req, res) => {
   try {
     let { action, instrument, logs = [], imageUrl, instrument_id } = req.body;
 
+    // OCR needs only an image — handle it before the instrument requirement.
+    if (action === 'ocr') {
+      if ((process.env.OCR_ENABLED || 'on').toLowerCase() === 'off') {
+        return res.json({ text: '' });
+      }
+      if (!imageUrl) return res.status(400).json({ error: 'imageUrl is required for OCR' });
+      try {
+        const text = await runOcr(imageUrl);
+        return res.json({ text });
+      } catch (err) {
+        console.error('OCR failed:', err.message);
+        return res.json({ text: '', error: err.message });
+      }
+    }
+
     // Accept instrument_id as shorthand — fetch instrument + logs from DB
     if (!instrument && instrument_id) {
       const { rows } = await pool.query('SELECT * FROM instruments WHERE id = $1', [instrument_id]);
@@ -193,12 +243,6 @@ router.post('/ai-analysis', async (req, res) => {
       );
 
       return res.json(pred);
-    }
-
-    if (action === 'ocr') {
-      // OCR is not implemented by default.
-      // To add OCR: install tesseract.js or call a cloud Vision API here.
-      return res.json({ text: '' });
     }
 
     res.status(400).json({ error: `Unknown action: ${action}` });
@@ -252,74 +296,83 @@ router.post('/auto-status', async (req, res) => {
   }
 });
 
+// Minimum time that must elapse between digests, per cadence
+const CADENCE_MS = {
+  daily:  20 * 60 * 60 * 1000,        // ~20h (tolerance for daily run)
+  weekly: 6.5 * 24 * 60 * 60 * 1000,  // ~6.5 days
+};
+
+/**
+ * Core digest routine — shared by the HTTP route and the background scheduler.
+ * @param {{ email?: string, force?: boolean }} opts
+ * @returns {Promise<{ sent: number, skipped: number }>}
+ */
+async function runDigest({ email, force } = {}) {
+  // Fetch matching notification settings
+  let settingsSql = `SELECT * FROM notification_settings WHERE cadence != 'off'`;
+  const settingsVals = [];
+  if (email) {
+    // Still respect cadence='off' unless force=true
+    if (force) {
+      settingsSql = 'SELECT * FROM notification_settings WHERE email = $1';
+    } else {
+      settingsSql = `SELECT * FROM notification_settings WHERE email = $1 AND cadence != 'off'`;
+    }
+    settingsVals.push(email);
+  }
+
+  const { rows: settingsList } = await pool.query(settingsSql, settingsVals);
+  const { rows: instruments }  = await pool.query('SELECT * FROM instruments');
+
+  let sent    = 0;
+  let skipped = 0;
+  for (const setting of settingsList) {
+    // Respect cadence schedule unless force=true
+    if (!force && setting.last_sent_at) {
+      const minMs   = CADENCE_MS[setting.cadence] ?? CADENCE_MS.daily;
+      const elapsed = Date.now() - new Date(setting.last_sent_at).getTime();
+      if (elapsed < minMs) { skipped++; continue; }
+    }
+
+    const overdue  = instruments.filter((i) => {
+      const md = daysBetween(i.next_maintenance);
+      const cd = daysBetween(i.next_calibration);
+      return (md !== null && md < 0) || (cd !== null && cd < 0);
+    });
+    const upcoming = instruments.filter((i) => {
+      const w  = setting.upcoming_days || 7;
+      const md = daysBetween(i.next_maintenance);
+      const cd = daysBetween(i.next_calibration);
+      return (md !== null && md >= 0 && md <= w) || (cd !== null && cd >= 0 && cd <= w);
+    });
+
+    const parts = [];
+    if (setting.alert_overdue  && overdue.length  > 0) parts.push(`${overdue.length} overdue`);
+    if (setting.alert_upcoming && upcoming.length > 0) parts.push(`${upcoming.length} upcoming`);
+
+    const subject = `LabCEI Digest: ${parts.join(', ') || 'All systems nominal'}`;
+    const summary = parts.length > 0 ? `Alerts: ${parts.join(', ')}` : 'No active alerts.';
+
+    await pool.query(
+      `INSERT INTO notifications_log (id,email,subject,summary,delivery_status)
+       VALUES ($1,$2,$3,$4,'sent')`,
+      [uuidv4(), setting.email, subject, summary],
+    );
+    await pool.query(
+      `UPDATE notification_settings SET last_sent_at = NOW() WHERE email = $1`,
+      [setting.email],
+    );
+    sent++;
+  }
+
+  return { sent, skipped };
+}
+
 // ── POST /api/functions/send-notifications ───────────────────────────────────
 router.post('/send-notifications', async (req, res) => {
   try {
     const { email, force } = req.body;
-
-    // Fetch matching notification settings
-    let settingsSql = `SELECT * FROM notification_settings WHERE cadence != 'off'`;
-    const settingsVals = [];
-    if (email) {
-      // Still respect cadence='off' unless force=true
-      if (force) {
-        settingsSql = 'SELECT * FROM notification_settings WHERE email = $1';
-      } else {
-        settingsSql = `SELECT * FROM notification_settings WHERE email = $1 AND cadence != 'off'`;
-      }
-      settingsVals.push(email);
-    }
-
-    const { rows: settingsList } = await pool.query(settingsSql, settingsVals);
-    const { rows: instruments }  = await pool.query('SELECT * FROM instruments');
-
-    // Minimum time that must elapse between digests, per cadence
-    const CADENCE_MS = {
-      daily:  20 * 60 * 60 * 1000,        // ~20h (tolerance for daily run)
-      weekly: 6.5 * 24 * 60 * 60 * 1000,  // ~6.5 days
-    };
-
-    let sent    = 0;
-    let skipped = 0;
-    for (const setting of settingsList) {
-      // Respect cadence schedule unless force=true
-      if (!force && setting.last_sent_at) {
-        const minMs   = CADENCE_MS[setting.cadence] ?? CADENCE_MS.daily;
-        const elapsed = Date.now() - new Date(setting.last_sent_at).getTime();
-        if (elapsed < minMs) { skipped++; continue; }
-      }
-
-      const overdue  = instruments.filter((i) => {
-        const md = daysBetween(i.next_maintenance);
-        const cd = daysBetween(i.next_calibration);
-        return (md !== null && md < 0) || (cd !== null && cd < 0);
-      });
-      const upcoming = instruments.filter((i) => {
-        const w  = setting.upcoming_days || 7;
-        const md = daysBetween(i.next_maintenance);
-        const cd = daysBetween(i.next_calibration);
-        return (md !== null && md >= 0 && md <= w) || (cd !== null && cd >= 0 && cd <= w);
-      });
-
-      const parts = [];
-      if (setting.alert_overdue  && overdue.length  > 0) parts.push(`${overdue.length} overdue`);
-      if (setting.alert_upcoming && upcoming.length > 0) parts.push(`${upcoming.length} upcoming`);
-
-      const subject = `LabCEI Digest: ${parts.join(', ') || 'All systems nominal'}`;
-      const summary = parts.length > 0 ? `Alerts: ${parts.join(', ')}` : 'No active alerts.';
-
-      await pool.query(
-        `INSERT INTO notifications_log (id,email,subject,summary,delivery_status)
-         VALUES ($1,$2,$3,$4,'sent')`,
-        [uuidv4(), setting.email, subject, summary],
-      );
-      await pool.query(
-        `UPDATE notification_settings SET last_sent_at = NOW() WHERE email = $1`,
-        [setting.email],
-      );
-      sent++;
-    }
-
+    const { sent, skipped } = await runDigest({ email, force });
     res.json({ sent, skipped, message: `Notifications sent to ${sent} user(s), ${skipped} skipped (cadence)` });
   } catch (err) {
     console.error('send-notifications error:', err.message);
@@ -328,3 +381,4 @@ router.post('/send-notifications', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.runDigest = runDigest;

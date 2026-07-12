@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TextInput, Pressable, Modal, ScrollView } from 
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../lib/theme';
 import { supabase } from '../../lib/supabase';
+import DateField from './DateField';
 
 type Props = {
   visible: boolean;
@@ -111,11 +112,11 @@ export default function AddLogModal({ visible, onClose, instrumentId, onAdded, t
             <View style={styles.row2}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.label}>Log Date</Text>
-                <TextInput style={styles.input} value={form.log_date} onChangeText={(v) => update('log_date', v)} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textLight} />
+                <DateField value={form.log_date} onChange={(v) => update('log_date', v)} />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.label}>Next Due Date</Text>
-                <TextInput style={styles.input} value={form.next_due_date} onChangeText={(v) => update('next_due_date', v)} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textLight} />
+                <DateField value={form.next_due_date} onChange={(v) => update('next_due_date', v)} />
               </View>
             </View>
 

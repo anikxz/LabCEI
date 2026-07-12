@@ -23,6 +23,9 @@ web-build/
 # API uploads (local file storage)
 api/uploads/
 
+# Tesseract runtime cache (decompressed traineddata; regenerated from tessdata/*.gz)
+api/*.traineddata
+
 # Misc
 .DS_Store
 *.log

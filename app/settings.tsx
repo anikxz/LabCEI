@@ -377,9 +377,10 @@ export default function SettingsPage() {
           <View style={{ flex: 1 }}>
             <Text style={styles.infoTitle}>Automated Scheduling</Text>
             <Text style={styles.infoText}>
-              The <Text style={styles.code}>send-notifications</Text> edge function is ready to be scheduled.
-              Trigger it daily at 8:00 AM UTC via an external cron service (cron-job.org, GitHub Actions, or a cloud scheduler).
-              Each user's cadence preference is respected so daily recipients won't get weekly duplicates.
+              Digests run automatically on the server — the <Text style={styles.code}>send-notifications</Text> routine
+              is executed on a built-in schedule (hourly by default). Each user's cadence preference is respected, so
+              daily recipients get at most one digest per day and weekly recipients one per week. Use the button above
+              to trigger an immediate run.
             </Text>
             {settings.last_sent_at && (
               <Text style={styles.infoMeta}>

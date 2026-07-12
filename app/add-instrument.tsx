@@ -5,6 +5,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { colors, shadow } from '../lib/theme';
 import { supabase } from '../lib/supabase';
 import { useAuth, canEdit } from '../lib/auth';
+import DateField from './components/DateField';
 
 export default function AddInstrument() {
   const router = useRouter();
@@ -170,16 +171,16 @@ export default function AddInstrument() {
 
           <Text style={[styles.section, { marginTop: 20 }]}>Compliance Schedule</Text>
           <View style={styles.row2}>
-            <Field label="Purchase Date" value={form.purchase_date} onChange={(v) => update('purchase_date', v)} placeholder="YYYY-MM-DD" />
+            <Field label="Purchase Date" value={form.purchase_date} onChange={(v) => update('purchase_date', v)} date />
             <View style={{ flex: 1 }} />
           </View>
           <View style={styles.row2}>
-            <Field label="Last Maintenance" value={form.last_maintenance} onChange={(v) => update('last_maintenance', v)} placeholder="YYYY-MM-DD" />
-            <Field label="Next Maintenance" value={form.next_maintenance} onChange={(v) => update('next_maintenance', v)} placeholder="YYYY-MM-DD" />
+            <Field label="Last Maintenance" value={form.last_maintenance} onChange={(v) => update('last_maintenance', v)} date />
+            <Field label="Next Maintenance" value={form.next_maintenance} onChange={(v) => update('next_maintenance', v)} date />
           </View>
           <View style={styles.row2}>
-            <Field label="Last Calibration" value={form.last_calibration} onChange={(v) => update('last_calibration', v)} placeholder="YYYY-MM-DD" />
-            <Field label="Next Calibration" value={form.next_calibration} onChange={(v) => update('next_calibration', v)} placeholder="YYYY-MM-DD" />
+            <Field label="Last Calibration" value={form.last_calibration} onChange={(v) => update('last_calibration', v)} date />
+            <Field label="Next Calibration" value={form.next_calibration} onChange={(v) => update('next_calibration', v)} date />
           </View>
 
           <Text style={styles.fieldLabel}>Notes</Text>
@@ -217,17 +218,21 @@ export default function AddInstrument() {
   );
 }
 
-function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+function Field({ label, value, onChange, placeholder, date }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; date?: boolean }) {
   return (
     <View style={{ flex: 1, marginBottom: 12 }}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <TextInput
-        style={styles.input}
-        value={value}
-        onChangeText={onChange}
-        placeholder={placeholder}
-        placeholderTextColor={colors.textLight}
-      />
+      {date ? (
+        <DateField value={value} onChange={onChange} placeholder={placeholder} />
+      ) : (
+        <TextInput
+          style={styles.input}
+          value={value}
+          onChangeText={onChange}
+          placeholder={placeholder}
+          placeholderTextColor={colors.textLight}
+        />
+      )}
     </View>
   );
 }

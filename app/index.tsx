@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 import StatCard from './components/StatCard';
 import InstrumentCard from './components/InstrumentCard';
 import StatusBadge from './components/StatusBadge';
+import InstallButton from './components/InstallButton';
 import { useAuth } from '../lib/auth';
 import { generateFleetHTML, printHTML } from '../lib/generatePDF';
 
@@ -206,6 +207,9 @@ export default function Dashboard() {
                 <Text style={styles.secondaryBtnText}>Add Instrument</Text>
               </Pressable>
 
+              {/* ✅ PWA install (web only; renders when installable) */}
+              <InstallButton />
+
               {/* ✅ BULK AI BUTTON — ADMIN ONLY */}
               {user?.role === 'admin' && (
                 <Pressable
@@ -369,7 +373,7 @@ export default function Dashboard() {
                   <Text style={styles.alertTitle}>{overdue.length} instrument{overdue.length > 1 ? 's' : ''} overdue</Text>
                   <Text style={styles.alertSub}>Maintenance or calibration past due. Review and schedule service.</Text>
                 </View>
-                <Pressable style={styles.alertBtn} onPress={() => router.push('/instruments')}>
+                <Pressable style={styles.alertBtn} onPress={() => router.push('/instruments?filter=overdue')}>
                   <Text style={styles.alertBtnText}>Review</Text>
                 </Pressable>
               </View>
@@ -390,7 +394,7 @@ export default function Dashboard() {
                     {atRisk.length > 3 ? ` and ${atRisk.length - 3} more` : ''}
                   </Text>
                 </View>
-                <Pressable style={styles.atRiskBtn} onPress={() => router.push('/instruments')}>
+                <Pressable style={styles.atRiskBtn} onPress={() => router.push('/instruments?filter=at_risk')}>
                   <Text style={styles.alertBtnText}>Review</Text>
                 </Pressable>
               </View>
