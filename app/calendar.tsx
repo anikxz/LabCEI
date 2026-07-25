@@ -1,7 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  Pressable, ActivityIndicator,
+  Pressable, ActivityIndicator, useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -28,10 +28,16 @@ export default function CalendarScreen() {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const { width } = useWindowDimensions();
+  const twoCol = width >= 900;
+
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(() => {
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())}`;
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -133,8 +139,9 @@ export default function CalendarScreen() {
       {loading ? (
         <View style={styles.loading}><ActivityIndicator color={colors.primary} size="large" /></View>
       ) : (
-        <>
-          {/* ── Calendar ── */}
+        <View style={twoCol ? styles.columns : undefined}>
+          {/* ── Left column: Calendar ── */}
+          <View style={twoCol ? styles.leftCol : undefined}>
           <View style={[styles.calCard, shadow]}>
             {/* Month nav */}
             <View style={styles.monthNav}>
@@ -165,36 +172,33 @@ export default function CalendarScreen() {
                 const isSelected = ds === selectedDate;
                 const dayEvents = eventsByDate[ds] || [];
                 const hasOverdue = dayEvents.some(e => e.daysAway < 0);
-                const hasMaint = dayEvents.some(e => e.type === 'maintenance');
-                const hasCalib = dayEvents.some(e => e.type === 'calibration');
 
                 return (
                   <Pressable
                     key={ds}
-                    style={[
-                      styles.cell,
-                      isToday && styles.todayCell,
-                      isSelected && styles.selectedCell,
-                    ]}
+                    style={styles.cell}
                     onPress={() => setSelectedDate(isSelected ? null : ds)}
                   >
-                    <Text style={[
-                      styles.dayNum,
-                      isToday && styles.todayNum,
-                      isSelected && styles.selectedNum,
+                    <View style={[
+                      styles.dayBadge,
+                      isToday && !isSelected && styles.todayBadge,
+                      isSelected && (hasOverdue ? styles.selBadgeDanger : styles.selBadge),
                     ]}>
-                      {day}
-                    </Text>
-                    {/* Dot indicators */}
+                      <Text style={[
+                        styles.dayNum,
+                        isToday && !isSelected && styles.todayNum,
+                        isSelected && styles.selectedNum,
+                      ]}>
+                        {day}
+                      </Text>
+                    </View>
                     {dayEvents.length > 0 && (
-                      <View style={styles.dots}>
-                        {hasMaint && (
-                          <View style={[styles.dot, { backgroundColor: hasOverdue ? colors.danger : colors.warning }]} />
-                        )}
-                        {hasCalib && (
-                          <View style={[styles.dot, { backgroundColor: hasOverdue ? colors.danger : colors.primary }]} />
-                        )}
-                      </View>
+                      <Text
+                        style={[styles.eventCount, hasOverdue && { color: colors.danger }]}
+                        numberOfLines={1}
+                      >
+                        {dayEvents.length} event{dayEvents.length !== 1 ? 's' : ''}
+                      </Text>
                     )}
                   </Pressable>
                 );
@@ -217,7 +221,10 @@ export default function CalendarScreen() {
               </View>
             </View>
           </View>
+          </View>{/* leftCol */}
 
+          {/* ── Right column: details ── */}
+          <View style={twoCol ? styles.rightCol : undefined}>
           {/* ── Selected day events ── */}
           {selectedDate && (
             <View style={[styles.section, shadow]}>
@@ -259,7 +266,8 @@ export default function CalendarScreen() {
               <EventRow key={e.id} event={e} onPress={() => router.push(`/instrument/${e.id.split('_')[0]}`)} />
             ))}
           </View>
-        </>
+          </View>{/* rightCol */}
+        </View>
       )}
     </ScrollView>
   );
@@ -300,6 +308,10 @@ const styles = StyleSheet.create({
   pageSubtitle: { fontSize: 13, color: colors.textMuted, marginTop: 4, marginBottom: 20 },
   loading: { padding: 60, alignItems: 'center' },
 
+  columns: { flexDirection: 'row', gap: 20, alignItems: 'flex-start' },
+  leftCol: { width: 360 },
+  rightCol: { flex: 1 },
+
   summaryRow: { flexDirection: 'row', gap: 12, marginBottom: 20 },
   summaryCard: {
     flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 14,
@@ -328,8 +340,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 2,
   },
-  todayCell: { backgroundColor: colors.primary + '15' },
-  selectedCell: { backgroundColor: colors.primary },
+  dayBadge: { width: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  todayBadge: { backgroundColor: colors.primary + '15' },
+  selBadge: { backgroundColor: colors.primary },
+  selBadgeDanger: { backgroundColor: colors.danger },
+  eventCount: { fontSize: 9, fontWeight: '600', color: colors.textMuted, marginTop: 2 },
   dayNum: { fontSize: 13, fontWeight: '500', color: colors.text },
   todayNum: { color: colors.primary, fontWeight: '800' },
   selectedNum: { color: '#fff', fontWeight: '800' },
