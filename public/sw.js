@@ -1,4 +1,4 @@
-const CACHE_NAME = 'labcei-v3';
+const CACHE_NAME = 'labcei-v4';
 
 const urlsToCache = [
   '/',
@@ -8,67 +8,68 @@ const urlsToCache = [
   '/icon-512.png',
 ];
 
-// Install: cache core files immediately
+// Install: pre-cache core shell, take over ASAP
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache))
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(urlsToCache)).catch(() => {})
   );
 });
 
-// Activate: remove old caches and take control
+// Activate: purge every previous cache version and claim clients
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     Promise.all([
-      // Clean up old cache versions
       caches.keys().then((keys) =>
-        Promise.all(
-          keys.map((key) => {
-            if (key !== CACHE_NAME) return caches.delete(key);
-          })
-        )
+        Promise.all(keys.map((key) => (key !== CACHE_NAME ? caches.delete(key) : undefined)))
       ),
-      // Take control of all clients immediately
       self.clients.claim(),
     ])
   );
 });
 
-// Fetch: cache-first for assets, network-first for API/supabase
+// Fetch strategy:
+//   • HTML / navigations  → network-first, so a freshly deployed index.html
+//     (and the hashed bundle it references) is always picked up.
+//   • hashed static assets → cache-first (filenames change every build, so
+//     stale content is impossible and offline still works).
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
 
   const url = new URL(event.request.url);
 
-  // Never intercept Supabase or external API calls
-  if (
-    url.hostname.includes('supabase') ||
-    url.hostname.includes('supabase.co') ||
-    url.hostname !== self.location.hostname
-  ) {
-    return; // Let browser handle it natively
+  // Never intercept API or other cross-origin requests
+  if (url.hostname !== self.location.hostname) return;
+
+  const isNavigation =
+    event.request.mode === 'navigate' ||
+    url.pathname === '/' ||
+    url.pathname.endsWith('.html');
+
+  if (isNavigation) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkRes) => {
+          const clone = networkRes.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          return networkRes;
+        })
+        .catch(() =>
+          caches.match(event.request).then((cached) => cached || caches.match('/index.html'))
+        )
+    );
+    return;
   }
 
+  // Cache-first for everything else (JS/CSS/img with content-hashed names)
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      return (
-        cached ||
-        fetch(event.request)
-          .then((networkRes) => {
-            // Cache same-origin GET responses
-            const toCache = networkRes.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, toCache);
-            });
-            return networkRes;
-          })
-          .catch(() => {
-            // SPA fallback for navigation
-            if (event.request.mode === 'navigate') {
-              return caches.match('/index.html');
-            }
-          })
-      );
-    })
+    caches.match(event.request).then((cached) =>
+      cached ||
+      fetch(event.request).then((networkRes) => {
+        const clone = networkRes.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        return networkRes;
+      })
+    )
   );
 });
