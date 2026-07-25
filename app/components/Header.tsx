@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, Pressable, Platform, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, usePathname } from 'expo-router';
-import { colors } from '../../lib/theme';
+import { colors, APP_VERSION } from '../../lib/theme';
 import { useAuth } from '../../lib/auth';
 
 const DESKTOP_BREAKPOINT = 768;
@@ -94,7 +94,7 @@ export default function Header() {
               </View>
               <View>
                 <Text style={styles.brandTitle}>LabCEI</Text>
-                <Text style={styles.brandSub}>Compliance</Text>
+                <Text style={styles.brandSub}>Compliance · {APP_VERSION}</Text>
               </View>
             </Pressable>
           </View>

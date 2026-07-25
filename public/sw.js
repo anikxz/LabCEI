@@ -1,4 +1,4 @@
-const CACHE_NAME = 'labcei-v4';
+const CACHE_NAME = 'labcei-v5';
 
 const urlsToCache = [
   '/',

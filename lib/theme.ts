@@ -1,3 +1,6 @@
+// Bump this on every deploy so the running build is identifiable in the UI.
+export const APP_VERSION = 'v1.2.0 · 2026-07-25';
+
 export const colors = {
   primary: '#1e40af',
   primaryLight: '#3b82f6',
